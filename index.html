@@ -346,9 +346,17 @@
         <label class="field-label">Alamat</label>
         <input type="text" id="fAlamat" placeholder="Alamat domisili">
       </div>
-      <div class="field">
+      <div class="field full">
         <label class="field-label">Orang tua / wali dari (nama anak)</label>
         <input type="text" id="fAnak" placeholder="Nama siswa">
+      </div>
+      <div class="field">
+        <label class="field-label">Jenis kelamin</label>
+        <select id="fJK">
+          <option value="">Pilih</option>
+          <option value="Putra">Putra</option>
+          <option value="Putri">Putri</option>
+        </select>
       </div>
       <div class="field">
         <label class="field-label">Kelas</label>
@@ -484,6 +492,7 @@
   const fNama = document.getElementById('fNama');
   const fAlamat = document.getElementById('fAlamat');
   const fAnak = document.getElementById('fAnak');
+  const fJK = document.getElementById('fJK');
   const fKelas = document.getElementById('fKelas');
   const fTelp = document.getElementById('fTelp');
   const fSetuju = document.getElementById('fSetuju');
@@ -491,10 +500,11 @@
   const statusPill = document.getElementById('statusPill');
 
   function updateSubmitState(){
-    const ok = fNama.value.trim() && fAlamat.value.trim() && fAnak.value.trim() && fSetuju.checked && hasSignature;
+    const ok = fNama.value.trim() && fAlamat.value.trim() && fAnak.value.trim() && fJK.value.trim() && fSetuju.checked && hasSignature;
     submitBtn.disabled = !ok;
   }
-  [fNama, fAlamat, fAnak, fKelas, fTelp].forEach(el => el.addEventListener('input', updateSubmitState));
+  [fNama, fAlamat, fAnak, fJK, fKelas, fTelp].forEach(el => el.addEventListener('input', updateSubmitState));
+  fJK.addEventListener('change', updateSubmitState);
   fSetuju.addEventListener('change', updateSubmitState);
 
   // Pre-fill dari parameter link, misalnya:
@@ -502,7 +512,7 @@
   // Dipakai untuk link personal per siswa yang dikirim dari Google Sheet rekap.
   (function prefillFromQuery(){
     const p = new URLSearchParams(window.location.search);
-    const map = { nama: fNama, telp: fTelp, alamat: fAlamat, anak: fAnak, kelas: fKelas };
+    const map = { nama: fNama, telp: fTelp, alamat: fAlamat, anak: fAnak, jk: fJK, kelas: fKelas };
     let filledAny = false;
     Object.keys(map).forEach(key => {
       const val = p.get(key);
@@ -626,6 +636,7 @@
       telp: fTelp.value.trim(),
       alamat: fAlamat.value.trim(),
       anak: fAnak.value.trim(),
+      jk: fJK.value.trim(),
       kelas: fKelas.value.trim(),
       tanggal: timestamp
     };
@@ -674,14 +685,14 @@
       '<div><span class="k">Nomor komitmen</span><span class="v">' + escapeHtml(record.id) + '</span></div>' +
       '<div><span class="k">Waktu penandatanganan</span><span class="v">' + escapeHtml(record.tanggal) + '</span></div>' +
       '<div><span class="k">Orang tua / wali</span><span class="v">' + escapeHtml(record.nama) + '</span></div>' +
-      '<div><span class="k">Siswa</span><span class="v">' + escapeHtml(record.anak) + (record.kelas ? (' &middot; ' + escapeHtml(record.kelas)) : '') + '</span></div>';
+      '<div><span class="k">Siswa</span><span class="v">' + escapeHtml(record.anak) + (record.jk ? (' &middot; ' + escapeHtml(record.jk)) : '') + (record.kelas ? (' &middot; ' + escapeHtml(record.kelas)) : '') + '</span></div>';
     document.querySelector('.sig-section').after(meta);
 
     document.getElementById('submitBtn').style.display = 'none';
     document.getElementById('pdfBtn').style.display = 'inline-block';
     updateSubmitState();
 
-    [fNama, fAlamat, fAnak, fKelas, fTelp, fSetuju, canvas, document.getElementById('clearBtn')].forEach(el => {
+    [fNama, fAlamat, fAnak, fJK, fKelas, fTelp, fSetuju, canvas, document.getElementById('clearBtn')].forEach(el => {
       el.disabled = true;
       el.style.pointerEvents = 'none';
     });
