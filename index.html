@@ -387,6 +387,7 @@
       <button class="btn btn-primary" id="submitBtn" disabled>Kirim &amp; tandatangani</button>
       <button class="btn btn-ghost" id="printBtn">Cetak</button>
       <button class="btn btn-ghost" id="pdfBtn" style="display:none;">Unduh PDF</button>
+      <button class="btn btn-ghost" id="waBtn" style="display:none;">Kirim ke WA BK</button>
     </div>
 
     <div class="footer-org">
@@ -411,6 +412,11 @@
   // "hubungkan-ke-google-sheet.md"). Kosongkan ('') kalau belum mau pakai —
   // data tetap tersimpan normal di riwayat platform seperti biasa.
   const GS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwZOJuiesP1Fuh3_rsvEudsoA5jNFRe7hbROYrzUzDtJLH2fFXXSQGOPj9hIKG1hXBI/exec';
+
+  // ====== NOTIFIKASI WHATSAPP KE BK (berdasarkan jenis kelamin siswa) ======
+  // Nomor ditulis format internasional (62...), tanpa spasi/tanda apa pun.
+  const WA_NUMBER_PUTRA = '6281217345679';
+  const WA_NUMBER_PUTRI = '6283119434251';
 
   const todayLabel = document.getElementById('todayLabel');
   const now = new Date();
@@ -620,6 +626,25 @@
 
   document.getElementById('pdfBtn').addEventListener('click', downloadPDF);
 
+  function waNumberFor(jk){
+    if(jk === 'Putra') return WA_NUMBER_PUTRA;
+    if(jk === 'Putri') return WA_NUMBER_PUTRI;
+    return '';
+  }
+
+  function openWhatsApp(record){
+    const nomor = waNumberFor(record.jk);
+    if(!nomor) return;
+    const pesan =
+      'Komitmen orang tua baru telah ditandatangani.\n' +
+      'No. Komitmen: ' + record.id + '\n' +
+      'Orang tua/wali: ' + record.nama + '\n' +
+      'Siswa: ' + record.anak + ' (' + record.jk + ')' + (record.kelas ? ' - Kelas ' + record.kelas : '') + '\n' +
+      'Waktu: ' + record.tanggal;
+    const url = 'https://wa.me/' + nomor + '?text=' + encodeURIComponent(pesan);
+    window.open(url, '_blank');
+  }
+
   submitBtn.addEventListener('click', async () => {
     if(submitBtn.disabled) return;
     submitBtn.disabled = true;
@@ -665,6 +690,7 @@
     showToast('Komitmen tersimpan. Terima kasih.');
 
     setTimeout(() => { downloadPDF(); }, 400);
+    setTimeout(() => { openWhatsApp(record); }, 900);
   });
 
   function renderSigned(record, sigDataUrl){
@@ -690,6 +716,11 @@
 
     document.getElementById('submitBtn').style.display = 'none';
     document.getElementById('pdfBtn').style.display = 'inline-block';
+    const waBtn = document.getElementById('waBtn');
+    if(waNumberFor(record.jk)){
+      waBtn.style.display = 'inline-block';
+      waBtn.onclick = () => openWhatsApp(record);
+    }
     updateSubmitState();
 
     [fNama, fAlamat, fAnak, fJK, fKelas, fTelp, fSetuju, canvas, document.getElementById('clearBtn')].forEach(el => {
