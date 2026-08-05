@@ -607,33 +607,26 @@
   }
 
   async function uploadPdfToDrive(base64, filename, record){
-    if(!GS_WEBHOOK_URL || !GS_WEBHOOK_URL.trim().startsWith('http')) return '';
+    if(!GS_WEBHOOK_URL || !GS_WEBHOOK_URL.trim().startsWith('http')) return;
     const payload = JSON.stringify({ action: 'savePdf', filename: filename, pdfBase64: base64, record: record });
     try{
-      const res = await fetch(GS_WEBHOOK_URL.trim(), {
+      // mode 'no-cors' dipakai sengaja: Apps Script tidak mengirim header CORS pada
+      // responsnya, jadi browser tidak bisa membaca balasannya (link Drive). Permintaan
+      // tetap sampai & diproses server, hanya responsnya yang tidak bisa dibaca di sini.
+      // Link PDF ditulis langsung oleh Apps Script ke kolom Google Sheet, bukan dikirim
+      // balik ke browser.
+      await fetch(GS_WEBHOOK_URL.trim(), {
         method: 'POST',
+        mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: payload
       });
-      const json = await res.json();
-      return json && json.driveUrl ? json.driveUrl : '';
     }catch(e){
-      console.error('[savePdf] Gagal membaca balasan dari Apps Script (kemungkinan dibatasi CORS). Mengirim ulang tanpa menunggu balasan supaya file tetap tersimpan.', e);
-      try{
-        await fetch(GS_WEBHOOK_URL.trim(), {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: payload
-        });
-      }catch(e2){
-        console.error('[savePdf] Pengiriman ulang (no-cors) juga gagal — periksa koneksi internet.', e2);
-      }
-      return '';
+      console.error('[savePdf] Gagal mengirim PDF ke Apps Script — periksa koneksi internet.', e);
     }
   }
 
-  function openWhatsApp(record, driveUrl){
+  function openWhatsApp(record){
     const nomor = waNumberFor(record.jk);
     if(!nomor) return;
     const pesan =
@@ -641,8 +634,8 @@
       'No. Komitmen: ' + record.id + '\n' +
       'Orang tua/wali: ' + record.nama + '\n' +
       'Siswa: ' + record.anak + ' (' + record.jk + ')' + (record.kelas ? ' - Kelas ' + record.kelas : '') + '\n' +
-      'Waktu: ' + record.tanggal +
-      (driveUrl ? ('\nPDF: ' + driveUrl) : '');
+      'Waktu: ' + record.tanggal + '\n' +
+      'PDF: cek kolom "Link PDF" di Google Sheet untuk No. Komitmen di atas.';
     const url = 'https://wa.me/' + nomor + '?text=' + encodeURIComponent(pesan);
     window.open(url, '_blank');
   }
@@ -693,11 +686,10 @@
       }catch(e){
         console.error('[buildPdf] Gagal membuat file PDF dari halaman.', e);
       }
-      let driveUrl = '';
       if(pdfInfo){
-        driveUrl = await uploadPdfToDrive(pdfInfo.base64, pdfInfo.filename, record);
+        await uploadPdfToDrive(pdfInfo.base64, pdfInfo.filename, record);
       }
-      openWhatsApp(record, driveUrl);
+      openWhatsApp(record);
     }, 400);
   });
 
