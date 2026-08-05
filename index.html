@@ -397,8 +397,7 @@
 
   </div>
 
-  <button class="history-toggle" id="historyToggle">Lihat riwayat pengisian &darr;</button>
-  <div class="history-panel" id="historyPanel" style="display:none;"></div>
+  <p class="empty-note" style="text-align:center; margin-top:18px;">Rekap seluruh pengisian tersimpan otomatis di Google Sheet BK, tidak ditampilkan di halaman ini.</p>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -541,40 +540,9 @@
     return 'KOM-' + yyyy + mm + dd + '-' + Math.random().toString(36).slice(2,6).toUpperCase();
   }
 
-  async function loadHistory(){
-    const panel = document.getElementById('historyPanel');
-    try{
-      const list = await window.storage.list('komitmen:', true);
-      if(!list || !list.keys || list.keys.length === 0){
-        panel.innerHTML = '<p class="empty-note">Belum ada data komitmen yang tersimpan.</p>';
-        return;
-      }
-      const rows = [];
-      for(const k of list.keys.slice(-30).reverse()){
-        try{
-          const rec = await window.storage.get(k, true);
-          if(rec && rec.value){
-            const d = JSON.parse(rec.value);
-            rows.push('<div class="history-row"><span class="name">' + escapeHtml(d.nama || '-') + ' &middot; ' + escapeHtml(d.anak || '-') + '</span><span>' + escapeHtml(d.tanggal || '') + '</span></div>');
-          }
-        }catch(e){}
-      }
-      panel.innerHTML = rows.join('') || '<p class="empty-note">Belum ada data komitmen yang tersimpan.</p>';
-    }catch(e){
-      panel.innerHTML = '<p class="empty-note">Riwayat belum tersedia.</p>';
-    }
-  }
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
-
-  document.getElementById('historyToggle').addEventListener('click', (e) => {
-    const panel = document.getElementById('historyPanel');
-    const open = panel.style.display !== 'none';
-    panel.style.display = open ? 'none' : 'block';
-    e.target.textContent = open ? 'Lihat riwayat pengisian ↓' : 'Sembunyikan riwayat ↑';
-    if(!open) loadHistory();
-  });
 
   document.getElementById('printBtn').addEventListener('click', () => window.print());
 
@@ -588,32 +556,38 @@
       .slice(0, 60) || 'komitmen';
   }
 
+  async function buildPdf(){
+    const sheet = document.getElementById('sheet');
+    const canvasImg = await html2canvas(sheet, {
+      scale: 2,
+      backgroundColor: '#F6F1E6',
+      useCORS: true
+    });
+    const imgData = canvasImg.toDataURL('image/jpeg', 0.95);
+    const { jsPDF } = window.jspdf;
+    const pxW = canvasImg.width, pxH = canvasImg.height;
+    const pdfW = 210;
+    const pdfH = (pxH / pxW) * pdfW;
+    const pdf = new jsPDF({
+      orientation: pdfH > pdfW ? 'portrait' : 'landscape',
+      unit: 'mm',
+      format: [pdfW, pdfH]
+    });
+    pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
+    const anak = currentRecord ? currentRecord.anak : '';
+    const idRec = currentRecord ? currentRecord.id : '';
+    const filename = 'Komitmen-' + sanitizeFilename(anak) + (idRec ? ('-' + idRec) : '') + '.pdf';
+    const base64 = pdf.output('datauristring').split(',')[1];
+    return { pdf, filename, base64 };
+  }
+
   async function downloadPDF(){
     const pdfBtn = document.getElementById('pdfBtn');
     const originalLabel = pdfBtn.textContent;
     pdfBtn.disabled = true;
     pdfBtn.textContent = 'Menyiapkan PDF…';
     try{
-      const sheet = document.getElementById('sheet');
-      const canvasImg = await html2canvas(sheet, {
-        scale: 2,
-        backgroundColor: '#F6F1E6',
-        useCORS: true
-      });
-      const imgData = canvasImg.toDataURL('image/jpeg', 0.95);
-      const { jsPDF } = window.jspdf;
-      const pxW = canvasImg.width, pxH = canvasImg.height;
-      const pdfW = 210;
-      const pdfH = (pxH / pxW) * pdfW;
-      const pdf = new jsPDF({
-        orientation: pdfH > pdfW ? 'portrait' : 'landscape',
-        unit: 'mm',
-        format: [pdfW, pdfH]
-      });
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
-      const anak = currentRecord ? currentRecord.anak : '';
-      const idRec = currentRecord ? currentRecord.id : '';
-      const filename = 'Komitmen-' + sanitizeFilename(anak) + (idRec ? ('-' + idRec) : '') + '.pdf';
+      const { pdf, filename } = await buildPdf();
       pdf.save(filename);
     }catch(e){
       console.error('Gagal membuat PDF', e);
@@ -632,7 +606,34 @@
     return '';
   }
 
-  function openWhatsApp(record){
+  async function uploadPdfToDrive(base64, filename, record){
+    if(!GS_WEBHOOK_URL || !GS_WEBHOOK_URL.trim().startsWith('http')) return '';
+    const payload = JSON.stringify({ action: 'savePdf', filename: filename, pdfBase64: base64, record: record });
+    try{
+      const res = await fetch(GS_WEBHOOK_URL.trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: payload
+      });
+      const json = await res.json();
+      return json && json.driveUrl ? json.driveUrl : '';
+    }catch(e){
+      console.error('[savePdf] Gagal membaca balasan dari Apps Script (kemungkinan dibatasi CORS). Mengirim ulang tanpa menunggu balasan supaya file tetap tersimpan.', e);
+      try{
+        await fetch(GS_WEBHOOK_URL.trim(), {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: payload
+        });
+      }catch(e2){
+        console.error('[savePdf] Pengiriman ulang (no-cors) juga gagal — periksa koneksi internet.', e2);
+      }
+      return '';
+    }
+  }
+
+  function openWhatsApp(record, driveUrl){
     const nomor = waNumberFor(record.jk);
     if(!nomor) return;
     const pesan =
@@ -640,7 +641,8 @@
       'No. Komitmen: ' + record.id + '\n' +
       'Orang tua/wali: ' + record.nama + '\n' +
       'Siswa: ' + record.anak + ' (' + record.jk + ')' + (record.kelas ? ' - Kelas ' + record.kelas : '') + '\n' +
-      'Waktu: ' + record.tanggal;
+      'Waktu: ' + record.tanggal +
+      (driveUrl ? ('\nPDF: ' + driveUrl) : '');
     const url = 'https://wa.me/' + nomor + '?text=' + encodeURIComponent(pesan);
     window.open(url, '_blank');
   }
@@ -666,12 +668,6 @@
       tanggal: timestamp
     };
 
-    try{
-      await window.storage.set('komitmen:' + id, JSON.stringify(record), true);
-    }catch(e){
-      console.error('Gagal menyimpan', e);
-    }
-
     if(GS_WEBHOOK_URL && GS_WEBHOOK_URL.trim().startsWith('http')){
       try{
         await fetch(GS_WEBHOOK_URL.trim(), {
@@ -689,8 +685,20 @@
     renderSigned(record, sigDataUrl);
     showToast('Komitmen tersimpan. Terima kasih.');
 
-    setTimeout(() => { downloadPDF(); }, 400);
-    setTimeout(() => { openWhatsApp(record); }, 900);
+    setTimeout(async () => {
+      let pdfInfo = null;
+      try{
+        pdfInfo = await buildPdf();
+        pdfInfo.pdf.save(pdfInfo.filename);
+      }catch(e){
+        console.error('[buildPdf] Gagal membuat file PDF dari halaman.', e);
+      }
+      let driveUrl = '';
+      if(pdfInfo){
+        driveUrl = await uploadPdfToDrive(pdfInfo.base64, pdfInfo.filename, record);
+      }
+      openWhatsApp(record, driveUrl);
+    }, 400);
   });
 
   function renderSigned(record, sigDataUrl){
